@@ -1,0 +1,117 @@
+#! /usr/bin/env bash
+
+# diceware: A simple script to fetch truly random diceware words
+#
+# Requires bash 4+
+#
+# 
+# Copyright (C) 2015 Brandon Wilson
+# 
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included
+# in all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+function _init {
+
+
+### Initialize Global Configuration
+
+local CONFIG
+declare -A CONFIG
+
+CONFIG['rand.min']=1
+CONFIG['rand.max']=6
+CONFIG['rand.group.length']=5
+CONFIG['rand.group.count']=${1}
+
+CONFIG['url.diceware_dict']="http://world.std.com/~reinhold/diceware.wordlist.asc"
+CONFIG['url.rand']="https://www.random.org/integers/"
+
+
+### Initialize Shared State
+
+local STATE
+declare -A STATE
+
+STATE['word.codes']=
+
+
+
+function get_word_codes {
+  local get_request="${CONFIG['url.rand']}?"
+  local get_request_dict
+  declare -A get_request_dict
+
+  get_request_dict['num']=$(( ${CONFIG['rand.group.length']} * \
+                                    ${CONFIG['rand.group.count']} ))
+  get_request_dict['min']=${CONFIG['rand.min']}
+  get_request_dict['max']=${CONFIG['rand.max']}
+  get_request_dict['col']=${CONFIG['rand.group.count']}
+  get_request_dict['base']=10
+  get_request_dict['format']="plain"
+  get_request_dict['rnd']="new"
+
+  local i=0
+  for field in ${!get_request_dict[@]}; do
+    [[ i -gt 0 ]] && get_request+="&"
+    get_request+=$field=${get_request_dict[$field]}
+    i+=1
+  done
+
+  STATE['word.codes']=`awk -f - <(curl -s $get_request) << 'EOF'
+    { for (i = 1; i <= NF; i++)
+        code[i]=code[i]$i }
+    END { for (i = 1; i <= NF; i++)
+            print code[i] }
+EOF`
+}
+
+function get_word_dict {
+  local dict_raw=$(egrep $(tr ' ' '|' <<< ${STATE['word.codes']}) \
+    <(curl -s ${CONFIG['url.diceware_dict']}) | tr '\t' ':')
+
+  for entry in ${dict_raw[@]}; do
+    STATE['word.dict'.${entry%%:*}]=${entry#*:}
+  done
+}
+
+function show_words {
+  for code in ${STATE['word.codes']}; do
+    printf "%s " ${STATE['word.dict'.$code]}
+  done
+  echo
+}
+
+function main {
+  if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 N"
+    echo "The argument N is a positive integer that denotes the number of"
+    echo "words to be fetched."
+    exit 1
+  fi
+
+  get_word_codes
+  get_word_dict
+  show_words
+}
+
+main ${@}
+
+
+}
+_init ${@}
+[[ -n $(typeset -f _init) ]] && unset -f _init
